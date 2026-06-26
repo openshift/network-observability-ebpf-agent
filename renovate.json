@@ -16,6 +16,11 @@
     ]
   },
   "dockerfile": {
+    "ignorePaths": [
+      "e2e/**",
+      "examples/**",
+      "scripts/generators/Dockerfile"
+    ],
     "packageRules": [
       {
         "matchManagers": ["dockerfile"],
