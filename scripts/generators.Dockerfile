@@ -1,4 +1,4 @@
-FROM fedora:43
+FROM fedora:44
 
 ARG GOVERSION="1.26.4"
 ARG PROTOCVERSION
@@ -34,6 +34,7 @@ RUN curl -fSL https://github.com/protocolbuffers/protobuf/releases/download/v$PR
     unzip protoc.zip && rm protoc.zip
 
 ENV PATH=$GOROOT/bin:$GOPATH/bin:/protoc/bin:$PATH
+ENV PROTOC=/protoc/bin/protoc
 
 WORKDIR /tmp
 # Copies some pre-required Go dependencies to avoid downloading them on each build
