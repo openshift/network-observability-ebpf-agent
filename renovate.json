@@ -24,9 +24,10 @@
     "packageRules": [
       {
         "matchManagers": ["dockerfile"],
-        "matchPackageNames": "docker.io/library/golang",
+        "matchPackageNames": ["docker.io/library/golang"],
         "enabled": false
       }
-    ]
+    ],
+    "ignorePaths": ["vendor/**"]
   }
 }
