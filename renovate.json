@@ -19,7 +19,7 @@
     "ignorePaths": [
       "e2e/**",
       "examples/**",
-      "scripts/generators/Dockerfile",
+      "scripts/generators.Dockerfile",
       "vendor/**"
     ],
     "packageRules": [
