@@ -70,13 +70,6 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } additional_flow_metrics SEC(".maps");
 
-//Ringbuf for Packet Payloads
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 21); // 256 bytes * 1000 events/sec * 5sec "eviction time"
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
-} packet_record SEC(".maps");
-
 // DNS tracking flow based hashmap used to correlate query and responses
 // to allow calculating latency in ebpf agent directly
 struct {
@@ -152,6 +145,21 @@ struct {
     __uint(max_entries, 1 << 27); // 16KB * 1000 events/sec * 5sec "eviction time" = ~128MB
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ssl_data_event_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, u64);
+    __type(value, struct ssl_read_active_t);
+} ssl_read_active_map SEC(".maps");
+
+// OpenSSL SSL* -> socket fd (populated by SSL_set_fd uprobe).
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct ssl_fd_key_t);
+    __type(value, s32);
+} ssl_fd_map SEC(".maps");
 // QUIC flow tracking map - keyed by flow_id (like other flow maps)
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);

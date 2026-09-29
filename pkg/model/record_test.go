@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netobserv/netobserv-ebpf-agent/pkg/ebpf"
+	ebpf "github.com/netobserv/netobserv-ebpf-agent/pkg/ebpf/flows"
 	"github.com/netobserv/netobserv-ebpf-agent/pkg/utils/networkevents"
 )
 
@@ -188,6 +188,33 @@ func TestParallelNewRecord(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestNewRecordIntoReusesInterfaceCapacity(t *testing.T) {
+	interfaceBacking := make([]IntfDirUdn, 2)
+	records := make([]Record, 2)
+
+	// Build the second record first so an extra interface added to the first
+	// record would expose overlap between their backing slices.
+	records[1].Interfaces = interfaceBacking[1:1:2]
+	NewRecordInto(&records[1], ebpf.BpfFlowId{}, &BpfFlowContent{
+		BpfFlowMetrics: &ebpf.BpfFlowMetrics{IfIndexFirstSeen: 20},
+	}, time.Time{}, 0, nil, nil)
+	secondInterface := records[1].Interfaces[0]
+	require.True(t, &records[1].Interfaces[0] == &interfaceBacking[1])
+
+	records[0].Interfaces = interfaceBacking[0:0:1]
+	NewRecordInto(&records[0], ebpf.BpfFlowId{}, &BpfFlowContent{
+		BpfFlowMetrics: &ebpf.BpfFlowMetrics{
+			IfIndexFirstSeen: 10,
+			NbObservedIntf:   1,
+			ObservedIntf:     [MaxObservedInterfaces]uint32{11},
+		},
+	}, time.Time{}, 0, nil, nil)
+
+	assert.Len(t, records[0].Interfaces, 2)
+	assert.Equal(t, secondInterface, records[1].Interfaces[0])
+	require.True(t, &records[1].Interfaces[0] == &interfaceBacking[1])
 }
 
 func TestDNSMetricsBinaryEncoding(t *testing.T) {

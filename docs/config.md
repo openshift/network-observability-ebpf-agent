@@ -1,6 +1,6 @@
 # eBPF Agent configuration environment variables
 
-_Please also refer to the file [config.go](../pkg/config/config.go) which is the primary source of truth._
+_Please also refer to [pkg/config/agent.go](../pkg/config/agent.go) and the `pkg/config/flows` / `pkg/config/packets` subpackages, which are the primary source of truth._
 
 The following environment variables are available to configure the NetObserv eBPF Agent:
 
@@ -74,12 +74,13 @@ The following environment variables are available to configure the NetObserv eBP
   * `KAFKA_TLS_CA_CERT_PATH` (default: unset). Path to the Kafka server certificate for TLS connections.
   * `KAFKA_TLS_USER_CERT_PATH` (default: unset). Path to the user (client) certificate for mutual TLS connections.
   * `KAFKA_TLS_USER_KEY_PATH` (default: unset). Path to the user (client) private key for mutual TLS connections.
-* `PROFILE_PORT` (default: unset). Sets the listening port for [Go's Pprof tool](https://pkg.go.dev/net/http/pprof).
-  If it is not set, profile is disabled.
+* `PPROF_ADDR` (default: unset). Sets the listening address for [Go's Pprof tool](https://pkg.go.dev/net/http/pprof). Do not expose publicly.
+  If it is not set, profiling is disabled.
 * `ENABLE_RTT` (default: `false` disabled). If `true` enables RTT calculations for the captured flows in the ebpf agent.
   See [docs](./rtt_calculations.md) for more details on this feature.
 * `ENABLE_PKT_DROPS` (default: `false` disabled). If `true` enables packet drops eBPF hook to be able to capture drops flows in the ebpf agent.
 * `ENABLE_DNS_TRACKING` (default: `false` disabled). If `true` enables DNS tracking to calculate DNS latency for the captured flows in the ebpf agent.
+* `DNS_TRACKING_PORT` (default: `53`). Comma-separated list of ports to track for DNS traffic (e.g., `53,5353,8053`). Maximum of 8 ports supported. Only used when `ENABLE_DNS_TRACKING` is enabled.
 * `QUIC_TRACKING_MODE` (default: `0`).
   * `0`: disable QUIC tracking
   * `1`: enable QUIC tracking, limited to **UDP/443** (lower overhead / fewer false positives)
@@ -88,6 +89,15 @@ The following environment variables are available to configure the NetObserv eBP
 * `PCA_FILTER` (default: `none`). Works only when `ENABLE_PCA` is set. Accepted format <protocol,portnumber>. Example 
   `PCA_FILTER=tcp,22`.
 * `PCA_SERVER_PORT` (default: 0). Works only when `ENABLE_PCA` is set. Agent opens PCA Server at this port. A collector can connect to it and recieve filtered packets as pcap stream. The filter is set using `PCA_FILTER`.
+* `ENABLE_OPENSSL_TRACKING` (default: `false`). Attaches uprobes to `SSL_read`/`SSL_write` on discovered `libssl.so` libraries for plaintext capture in PCA mode. Requires privileged agent with `hostPID` for per-process libssl discovery.
+* `OPENSSL_PATH` (default: `/usr/lib64/libssl.so.3`). Logged at startup; auto-discovery attaches only per-container `libssl.so` copies under `/proc/<pid>/root` (not the host default path, which would hook every process using that library). Infrastructure processes (kubelet, crio, multus, console, ovn, …) are skipped.
+* `TLS_PLAINTEXT_PID_ALLOWLIST` (default: unset). Comma-separated list of PIDs to scope TLS plaintext capture and uprobe discovery. When unset, PID scope is derived from `peer_ip` / `peer_cidr` in `FLOW_FILTER_RULES` (refreshed every 5s from `/proc` TCP tables).
+* `TLS_PLAINTEXT_PROCESS_ALLOWLIST` (default: unset). Comma-separated list of process names (matched against `/proc/<pid>/comm`) to scope uprobe attachment. When set, only processes whose comm matches an entry in this list are hooked. Infrastructure processes (kubelet, crio, etc.) are always excluded regardless of this setting. **Recommended for production** — without an allowlist, uprobes attach to all non-infrastructure processes.
+* `TLS_PLAINTEXT_DEDUP_ENABLED` (default: `true`). Drops duplicate plaintext events with the same PID, direction, and payload prefix within the dedup window.
+* `TLS_PLAINTEXT_DEDUP_WINDOW` (default: `500ms`). Time window for plaintext deduplication.
+* `TLS_PLAINTEXT_MIN_BYTES` (default: `0`). Drops plaintext events shorter than this many bytes before export. Use `4` or `8` to skip TLS/WebSocket framing noise while keeping HTTP headers and bodies. `0` disables filtering.
+* **5-tuple enrichment** uses socket fd when available: OpenSSL `SSL_set_fd` uprobe + `SSL*`→BIO→fd fallback. Fd is resolved to `/proc/net/tcp` inode for the exact connection.
+* `TLS_PLAINTEXT_PREVIEW_BYTES` (default: `256`). Length of the `PlaintextPreview` string on exported events. `0` includes the full captured payload (up to 16 KiB per eBPF event). The full payload is always available in the base64 `Plaintext` field.
 * `FLP_CONFIG`: [flowlogs-pipeline](https://github.com/netobserv/flowlogs-pipeline) configuration as YAML or JSON, used when `EXPORT` is `direct-flp`. The ingest stage must be omitted from this configuration, since it is handled internally by the agent. The first stage should follow "preset-ingester". E.g, for a minimal configuration printing on terminal: `{"pipeline":[{"name": "writer","follows": "preset-ingester"}],"parameters":[{"name": "writer","write": {"type": "stdout"}}]}`. Refer to flowlogs-pipeline documentation for more options.
 * `METRICS_ENABLED` (default: `false`). If `true`, the agent will export metrics to the configured `EXPORT` endpoint.
   * `METRICS_SERVER_ADDRESS` Address of the server where the metrics will be exported.
@@ -95,6 +105,9 @@ The following environment variables are available to configure the NetObserv eBP
   * `METRICS_TLS_CERT_PATH` (default: unset). Path to the certificate file for the TLS connection.
   * `METRICS_TLS_KEY_PATH` (default: unset). Path to the private key file for the TLS connection.
   * `METRICS_PREFIX` (default: `ebpf-agent`). Prefix for the exported metrics.
+* `TLS_MIN_VERSION` (default: unset). Overrides the minimum TLS version for the metrics server. Value is the decimal uint16 TLS version number (e.g. `771` for TLS 1.2, `772` for TLS 1.3). When unset, the agent defaults to TLS 1.3.
+* `TLS_CIPHER_SUITES` (default: unset). Comma-separated list of TLS cipher suite IDs (decimal uint16, IANA registry values) to use for TLS 1.0-1.2 negotiation. TLS 1.3 suite IDs (4865, 4866, 4867) are silently filtered out since Go's crypto/tls does not allow customizing TLS 1.3 suites. Has no effect when the effective minimum TLS version is 1.3.
+* `TLS_CURVE_PREFERENCES` (default: unset). Comma-separated list of TLS curve IDs (decimal uint16) for key exchange (e.g. `23` for P-256, `24` for P-384, `29` for X25519).
 * `FLOW_FILTER_RULES` (default: unset). Filtering rules, in JSON format. See [docs](./flow_filtering.md) for details.
 * `PREFERRED_INTERFACE_FOR_MAC_PREFIX` (default: unset). It is a comma-separated list of key=value pairs, allowing to specify a preference when retrieving interface names per flow in case of index collision, when using multiple network namespaces are used. This setting is only used when the interface name could not be found for a given index and MAC. E.g. "0a:58=eth0" (used for ovn-kubernetes).
 

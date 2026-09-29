@@ -13,8 +13,10 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/sirupsen/logrus"
 
-	"github.com/netobserv/netobserv-ebpf-agent/pkg/agent"
+	flowsagent "github.com/netobserv/netobserv-ebpf-agent/pkg/agent/flows"
+	packetsagent "github.com/netobserv/netobserv-ebpf-agent/pkg/agent/packets"
 	"github.com/netobserv/netobserv-ebpf-agent/pkg/config"
+	"github.com/netobserv/netobserv-ebpf-agent/pkg/server"
 
 	_ "net/http/pprof"
 )
@@ -45,10 +47,11 @@ func main() {
 	}
 	setLoggerVerbosity(&config)
 
-	if config.ProfilePort != 0 {
+	if config.PprofAddr != "" {
 		go func() {
-			logrus.WithField("port", config.ProfilePort).Info("starting PProf HTTP listener")
-			logrus.WithError(http.ListenAndServe(fmt.Sprintf(":%d", config.ProfilePort), nil)).
+			logrus.WithField("addr", config.PprofAddr).Info("starting PProf HTTP listener")
+			srv := server.Default(&http.Server{Addr: config.PprofAddr, Handler: http.DefaultServeMux})
+			logrus.WithError(srv.ListenAndServe()).
 				Error("PProf HTTP listener stopped working")
 		}()
 	}
@@ -57,8 +60,11 @@ func main() {
 	cfglog.Formatter = &logrus.TextFormatter{DisableQuote: true}
 	cfglog.WithField("configuration", fmt.Sprintf("%#v", config)).Infof("configuration loaded")
 
-	if config.EnablePCA {
-		packetsAgent, err := agent.PacketsAgent(&config)
+	if config.Packets.EnablePCA {
+		if err := config.ValidateForPackets(); err != nil {
+			logrus.WithError(err).Fatal("[PCA] invalid configuration for packet capture mode")
+		}
+		packetsAgent, err := packetsagent.New(&config)
 		if err != nil {
 			logrus.WithError(err).Fatal("[PCA] can't instantiate NetObserv eBPF Agent")
 		}
@@ -68,7 +74,10 @@ func main() {
 			logrus.WithError(err).Fatal("[PCA] can't start netobserv-ebpf-agent")
 		}
 	} else {
-		flowsAgent, err := agent.FlowsAgent(&config)
+		if err := config.ValidateForFlows(); err != nil {
+			logrus.WithError(err).Fatal("invalid configuration for flow capture mode")
+		}
+		flowsAgent, err := flowsagent.New(&config)
 
 		if err != nil {
 			logrus.WithError(err).Fatal("can't instantiate NetObserv eBPF Agent")

@@ -18,7 +18,8 @@ func TestRegisterer(t *testing.T) {
 	defer cancel()
 
 	watcher := NewWatcher(10, metrics.NoOp())
-	registry, err := NewRegisterer(watcher, &config.Agent{BuffersLength: 10}, metrics.NoOp())
+	watcher.netNamespaces = defaultNetNSForTest
+	registry, err := NewRegisterer(watcher, &config.Agent{Common: config.Common{BuffersLength: 10}}, metrics.NoOp())
 	require.NoError(t, err)
 
 	// mock net.Interfaces and linkSubscriber to control which interfaces are discovered
@@ -91,7 +92,8 @@ func TestRegisterer_Lookup(t *testing.T) {
 	)
 
 	watcher := NewWatcher(10, metrics.NoOp())
-	registry, err := NewRegisterer(watcher, &config.Agent{BuffersLength: 10, PreferredInterfaceForMACPrefix: "0a:58=eth0"}, metrics.NoOp())
+	watcher.netNamespaces = defaultNetNSForTest
+	registry, err := NewRegisterer(watcher, &config.Agent{Common: config.Common{BuffersLength: 10, PreferredInterfaceForMACPrefix: "0a:58=eth0"}}, metrics.NoOp())
 	require.NoError(t, err)
 
 	// Set conflicting interfaces on ifindex 2 (they would have different netns, but that's not important for this test)
@@ -144,7 +146,8 @@ func TestRegisterer_Lookup(t *testing.T) {
 	}
 
 	// test no match (wrong ifindex)
-	_, ok = registry.IfaceNameForIndexAndMAC(5, [6]uint8{0x02, 0x03, 0x04, 0x05, 0x06, 0x07})
+	_, ok = registry.IfaceNameForIndexAndMAC(20, [6]uint8{0x02, 0x03, 0x04, 0x05, 0x06, 0x07})
+	// Note: if that test fails on your machine, it may be that you actually have a corresponding interface index; you can increase the index in this test
 	assert.False(t, ok)
 }
 
@@ -154,7 +157,8 @@ func TestRegisterer_LookupRace(t *testing.T) {
 	defer cancel()
 
 	watcher := NewWatcher(10, metrics.NoOp())
-	registry, err := NewRegisterer(watcher, &config.Agent{BuffersLength: 10}, metrics.NoOp())
+	watcher.netNamespaces = defaultNetNSForTest
+	registry, err := NewRegisterer(watcher, &config.Agent{Common: config.Common{BuffersLength: 10}}, metrics.NoOp())
 	require.NoError(t, err)
 
 	// Start with empty interfaces

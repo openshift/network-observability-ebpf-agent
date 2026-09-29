@@ -1,7 +1,7 @@
 ARG TARGETARCH
 
 # Build the manager binary
-FROM docker.io/library/golang:1.25 AS builder
+FROM docker.io/library/golang:1.26 AS builder
 
 ARG TARGETARCH
 
@@ -21,7 +21,7 @@ COPY go.sum go.sum
 RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -ldflags "$LDFLAGS" -mod vendor -a -o bin/netobserv-ebpf-agent cmd/netobserv-ebpf-agent.go
 
 # Create final image from minimal + built binary
-FROM --platform=linux/$TARGETARCH registry.access.redhat.com/ubi9/ubi-minimal:9.8-1777460003
+FROM --platform=linux/$TARGETARCH registry.access.redhat.com/ubi9/ubi-minimal:1790074409
 WORKDIR /
 COPY --from=builder /opt/app-root/bin/netobserv-ebpf-agent .
 USER 65532:65532
