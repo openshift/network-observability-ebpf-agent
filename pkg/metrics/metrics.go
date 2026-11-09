@@ -97,9 +97,9 @@ var (
 		"source",
 		"reason",
 	)
-	filterFlows = defineMetric(
-		"filtered_flows_total",
-		"Number of filtered flows",
+	filteredPackets = defineMetric(
+		"filtered_packets_total",
+		"Number of filtered packets",
 		TypeCounter,
 		"source",
 		"reason",
@@ -129,9 +129,14 @@ var (
 		TypeCounter,
 		"exporter",
 	)
-	samplingRate = defineMetric(
+	samplingInterval = defineMetric(
 		"sampling_rate",
-		"Sampling interval",
+		"Configured sampling interval",
+		TypeGauge,
+	)
+	bpfMapCapacity = defineMetric(
+		"bpf_map_capacity",
+		"Configured BPF maximum map size (CACHE_MAX_FLOWS)",
 		TypeGauge,
 	)
 	errorsCounter = defineMetric(
@@ -193,7 +198,7 @@ type Metrics struct {
 	EvictedFlowsCounter      *EvictionCounter
 	EvictedPacketsCounter    *EvictionCounter
 	DroppedFlowsCounter      *EvictionCounter
-	FilteredFlowsCounter     *EvictionCounter
+	FilteredPacketsCounter   *EvictionCounter
 	NetworkEventsCounter     *EvictionCounter
 	FlowBufferSizeGauge      *FlowBufferSizeGauge
 	Errors                   *ErrorCounter
@@ -209,7 +214,7 @@ func NewMetrics(settings *Settings) *Metrics {
 	m.EvictedFlowsCounter = &EvictionCounter{vec: m.NewCounterVec(&evictedFlowsTotal)}
 	m.EvictedPacketsCounter = &EvictionCounter{vec: m.NewCounterVec(&evictedPktTotal)}
 	m.DroppedFlowsCounter = &EvictionCounter{vec: m.NewCounterVec(&droppedFlows)}
-	m.FilteredFlowsCounter = &EvictionCounter{vec: m.NewCounterVec(&filterFlows)}
+	m.FilteredPacketsCounter = &EvictionCounter{vec: m.NewCounterVec(&filteredPackets)}
 	m.NetworkEventsCounter = &EvictionCounter{vec: m.NewCounterVec(&networkEvents)}
 	m.FlowBufferSizeGauge = &FlowBufferSizeGauge{vec: m.NewGaugeVec(&flowBufferSize)}
 	m.Errors = &ErrorCounter{vec: m.NewCounterVec(&errorsCounter)}
@@ -384,8 +389,12 @@ func (m *Metrics) CreateBatchCounter(exporter string) prometheus.Counter {
 	return m.NewCounter(&exportedBatchCounterTotal, exporter)
 }
 
-func (m *Metrics) CreateSamplingRate() prometheus.Gauge {
-	return m.NewGauge(&samplingRate)
+func (m *Metrics) CreateSamplingInterval() prometheus.Gauge {
+	return m.NewGauge(&samplingInterval)
+}
+
+func (m *Metrics) CreateBPFMapCapacity() prometheus.Gauge {
+	return m.NewGauge(&bpfMapCapacity)
 }
 
 func (m *Metrics) CreateInterfaceBufferGauge(name string, f func() float64) {

@@ -56,8 +56,7 @@ type Agent struct {
 	promoServer   *http.Server
 	sampleDecoder *ovnobserv.SampleDecoder
 
-	metrics     *metrics.Metrics
-	rbSSLTracer *flow.RingBufTracer
+	metrics *metrics.Metrics
 }
 
 // ebpfFlowFetcher abstracts the interface of ebpf.FlowFetcher to allow dependency injection in tests
@@ -65,10 +64,9 @@ type ebpfFlowFetcher interface {
 	io.Closer
 	common.TCAttacher
 
-	LookupAndDeleteMap(*metrics.Metrics) map[ebpf.BpfFlowId]model.BpfFlowContent
+	LookupAndDeleteMap(*metrics.Metrics) map[ebpf.FlowsBpfFlowId]model.BpfFlowContent
 	DeleteMapsStaleEntries(timeOut time.Duration)
 	ReadRingBuf() (ringbuf.Record, error)
-	ReadSSLRingBuf() (ringbuf.Record, error)
 }
 
 // New instantiates a new flow agent from configuration.
@@ -162,21 +160,20 @@ func newAgent(
 		promoServer = promo.InitializePrometheus(m.Settings)
 	}
 
-	samplingGauge := m.CreateSamplingRate()
+	samplingGauge := m.CreateSamplingInterval()
 	samplingGauge.Set(float64(cfg.Sampling))
+
+	mapCapacityGauge := m.CreateBPFMapCapacity()
+	mapCapacityGauge.Set(float64(cfg.CacheMaxFlows))
 
 	mapTracer := flow.NewMapTracer(fetcher, cfg.CacheActiveTimeout, cfg.Flows.StaleEntriesEvictTimeout, m, s, cfg.Flows.EnableUDNMapping)
 	var rbTracer *flow.RingBufTracer
 	if cfg.Flows.EnableFlowsRingbufFallback {
 		rbTracer = flow.NewRingBufTracer(fetcher, mapTracer, cfg.CacheActiveTimeout, m)
 	}
-	var rbSSLTracer *flow.RingBufTracer
-	if cfg.EnableOpenSSLTracking {
-		rbSSLTracer = flow.NewSSLRingBufTracer(fetcher, mapTracer, cfg.CacheActiveTimeout, m)
-	}
 
 	var accounter *flow.Accounter
-	if rbTracer != nil || rbSSLTracer != nil {
+	if rbTracer != nil {
 		accounter = flow.NewAccounter(cfg.CacheMaxFlows, cfg.CacheActiveTimeout, time.Now, monotime.Now, m, s, cfg.Flows.EnableUDNMapping)
 	}
 	limiter := flow.NewCapacityLimiter(m)
@@ -194,7 +191,6 @@ func newAgent(
 		informer:      informer,
 		promoServer:   promoServer,
 		metrics:       m,
-		rbSSLTracer:   rbSSLTracer,
 		sampleDecoder: s,
 	}, nil
 }
@@ -351,12 +347,9 @@ func (a *Agent) buildAndStartPipeline(ctx context.Context) (*node.Terminal[[]*mo
 	}
 	alog.Debug("connecting flows processing graph")
 	mapTracer := node.AsStart(a.mapTracer.TraceLoop(ctx, a.cfg.Flows.ForceGC))
-	var rbTracer, rbSSLTracer *node.Start[*model.RawRecord]
+	var rbTracer *node.Start[*model.RawRecord]
 	if a.rbTracer != nil {
 		rbTracer = node.AsStart(a.rbTracer.TraceLoop(ctx))
-	}
-	if a.rbSSLTracer != nil {
-		rbSSLTracer = node.AsStart(a.rbSSLTracer.TraceLoop(ctx))
 	}
 
 	var accounter *node.Middle[*model.RawRecord, []*model.Record]
@@ -376,9 +369,6 @@ func (a *Agent) buildAndStartPipeline(ctx context.Context) (*node.Terminal[[]*mo
 	if rbTracer != nil && accounter != nil {
 		rbTracer.SendsTo(accounter)
 	}
-	if rbSSLTracer != nil && accounter != nil {
-		rbSSLTracer.SendsTo(accounter)
-	}
 
 	mapTracer.SendsTo(limiter)
 	if accounter != nil {
@@ -390,9 +380,6 @@ func (a *Agent) buildAndStartPipeline(ctx context.Context) (*node.Terminal[[]*mo
 	mapTracer.Start()
 	if rbTracer != nil {
 		rbTracer.Start()
-	}
-	if rbSSLTracer != nil {
-		rbSSLTracer.Start()
 	}
 	return export, nil
 }
